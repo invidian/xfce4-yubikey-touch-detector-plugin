@@ -1,0 +1,8 @@
+[Unit]
+Description=YubiKey Touch Detector status writer daemon
+
+[Service]
+ExecStart=/bin/bash -c '~/.local/bin/yubikey-touch-detector-status-writer'
+
+[Install]
+WantedBy=default.target

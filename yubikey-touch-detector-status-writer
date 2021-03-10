@@ -1,0 +1,81 @@
+#!/bin/bash
+
+set -x
+
+ICONS_DIR=~/.cache/yubikey-touch-detector-status
+STATUS_FILE=~/.cache/yubikey-touch-detector-status/current
+ICONS_SIZE=32
+TEXT="Touch not pending."
+SOCKET="${XDG_RUNTIME_DIR:-/run/user/$UID}/yubikey-touch-detector.socket"
+
+ICON='<svg xmlns="http://www.w3.org/2000/svg" width="65" height="65"  stroke="#000" stroke-linecap="round" stroke-linejoin="round" fill="#fff" fill-rule="nonzero"><path d="M32.225 31.1l5.52-15.663h7.985L32.27 48.563h-8.435l3.862-9.075-9.43-24.027h8.15z" stroke="none" fill="#FFFFFF"/><path d="M2.909 32C2.909 15.8836 15.8836 2.909 32 2.909S61.091 15.8836 61.091 32 48.1164 61.091 32 61.091 2.909 48.1164 2.909 32z" stroke="#FFFFFF" fill="#000" fill-opacity="0" stroke-width="5.818"/></svg>'
+
+ICON_PENDING='<svg xmlns="http://www.w3.org/2000/svg" width="65" height="65"  stroke="#000" stroke-linecap="round" stroke-linejoin="round" fill="#fff" fill-rule="nonzero"><path d="M32.225 31.1l5.52-15.663h7.985L32.27 48.563h-8.435l3.862-9.075-9.43-24.027h8.15z" stroke="none" fill="#FF0000"/><path d="M2.909 32C2.909 15.8836 15.8836 2.909 32 2.909S61.091 15.8836 61.091 32 48.1164 61.091 32 61.091 2.909 48.1164 2.909 32z" stroke="#FFFFFF" fill="#000" fill-opacity="0" stroke-width="5.818"/></svg>'
+
+function svg() {
+  if [ ! -d $ICONS_DIR ]; then
+    mkdir -p $ICONS_DIR
+  fi
+
+	OUTPUT=$ICONS_DIR/$(basename $1)
+
+  if [ -f $OUTPUT ]; then
+    echo $OUTPUT
+    return 0
+  fi
+
+	INPUT=$ICONS_DIR/$(basename $1).orig
+
+	if [ ! -f $INPUT ]; then
+		echo $2 > $INPUT
+	fi
+
+  if ! which rsvg-convert >/dev/null; then
+    echo ""
+    return 1
+  fi
+
+  rsvg-convert -w $ICONS_SIZE -h $ICONS_SIZE $INPUT > $OUTPUT
+
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
+
+	echo $OUTPUT
+
+	return 0
+}
+
+while true; do
+    touch_requests=0
+
+    if [[ ! -S "$SOCKET" ]]; then
+        while [[ ! -S "$SOCKET" ]]; do sleep 1; done
+    fi
+
+    # Use -U to only write to stdout and ignore reading from stdin, as there might not be one
+    # if this script runs as systemd unit. Also, we only want to read from the socket, never write
+    # anything.
+    #
+    # Use -b5 as each message is always 5 bytes long.
+    socat -U -b5 - UNIX-CONNECT:$SOCKET | while read -N 5 cmd; do
+        if [ "${cmd:4:1}" = "1" ]; then
+            ((touch_requests++))
+        else
+            ((touch_requests--))
+        fi
+
+        if [[ $touch_requests -gt 0 ]]; then
+						TEXT="Touch pending."
+            echo "<img>$(svg "icon-pending.svg" "${ICON_PENDING}")</img>" > $STATUS_FILE
+        else
+						TEXT="Touch not pending."
+            echo "<img>$(svg "icon.svg" "${ICON}")</img>" > $STATUS_FILE
+        fi
+
+        echo -e "<tool>$TEXT</tool>" >> $STATUS_FILE
+    done
+
+    sleep 1
+done
+
